@@ -26,7 +26,7 @@ This document provides a comprehensive analysis of how TiddlyWiki5 could be modi
 
 ### Approach 1: Plugin-Based Integration (Recommended)
 
-**Overview:** Create a new plugin following TiddlyWiki's established plugin architecture, similar to existing plugins like markdown, highlight, or markdown.
+**Overview:** Create a new plugin following TiddlyWiki's established plugin architecture, similar to existing plugins like markdown, highlight, or codemirror.
 
 **Structure:**
 ```
@@ -143,6 +143,7 @@ plugins/tiddlywiki/openai/
 - More complex to maintain
 - Harder to disable if not needed
 - Not aligned with TiddlyWiki's extensibility philosophy
+- Significant maintenance burden keeping core changes synchronized with upstream TiddlyWiki development
 
 ### Approach 3: External Service Integration
 
@@ -186,10 +187,11 @@ OpenAI API
 **Browser Environment:**
 - **Problem:** API keys exposed in browser
 - **Solutions:**
-  - Use proxy service (recommended)
-  - Encrypt keys with user password (local storage)
-  - Use Web Crypto API for encryption
-  - Warn users about security implications
+  - **Use proxy service (strongly recommended)** - This is the most secure approach for browser environments
+  - Encrypt keys with user password using proper key derivation (PBKDF2 with Web Crypto API)
+  - Warning: Browser-based encryption provides limited security as keys must be decrypted client-side
+  - Clearly warn users about security implications and limitations
+  - Consider making proxy service the default/only option for browser deployments
 
 **Node.js Environment:**
 - Store in environment variables
@@ -226,8 +228,12 @@ OpenAI API
 - Graceful degradation (features disabled when offline)
 - Cache previous responses
 - Queue requests for later processing
+  - Requests stored in local queue with timestamps
+  - Auto-retry when connectivity restored
+  - User notification of queued requests
+  - Ability to cancel queued requests
 - Optional: Local model support (via Ollama/llama.cpp)
-- Status indicators in UI
+- Status indicators in UI showing online/offline/queued state
 
 ### 4. Performance Optimization
 
@@ -538,30 +544,33 @@ OpenAICompletionWidget.prototype.render = function(parent,nextSibling) {
   this.domNodes.push(containerNode);
 };
 
-OpenAICompletionWidget.prototype.generateCompletion = async function(prompt) {
+OpenAICompletionWidget.prototype.generateCompletion = function(prompt) {
+  var self = this;
+  return $tw.utils.promiseWrapper(async function() {
   try {
-    this.resultNode.textContent = "Generating...";
+    self.resultNode.textContent = "Generating...";
     
-    var client = new OpenAIClient(this.wiki);
+    var client = new OpenAIClient(self.wiki);
     var result = await client.complete({
-      model: this.getAttribute("model", "gpt-3.5-turbo"),
+      model: self.getAttribute("model", "gpt-3.5-turbo"),
       prompt: prompt,
-      max_tokens: parseInt(this.getAttribute("max_tokens", "500"))
+      max_tokens: parseInt(self.getAttribute("max_tokens", "500"))
     });
     
-    this.resultNode.textContent = result;
+    self.resultNode.textContent = result;
     
     // Optionally save to tiddler
-    if(this.getAttribute("target")) {
-      this.wiki.addTiddler({
-        title: this.getAttribute("target"),
+    if(self.getAttribute("target")) {
+      self.wiki.addTiddler({
+        title: self.getAttribute("target"),
         text: result
       });
     }
   } catch(error) {
-    this.resultNode.textContent = "Error: " + error.message;
-    this.resultNode.className = "tc-openai-result tc-error";
+    self.resultNode.textContent = "Error: " + error.message;
+    self.resultNode.className = "tc-openai-result tc-error";
   }
+  });
 };
 
 OpenAICompletionWidget.prototype.execute = function() {
@@ -1179,6 +1188,6 @@ This integration has the potential to significantly enhance TiddlyWiki's capabil
 
 ---
 
-*Document created: 2025-11-23*  
+*Document created: 2024-11-23*  
 *TiddlyWiki Version: 5.4.0-prerelease*  
 *Analysis Scope: OpenAI API Integration*
